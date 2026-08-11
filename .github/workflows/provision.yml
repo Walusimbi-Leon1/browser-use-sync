@@ -56,11 +56,13 @@ jobs:
           curl -sL -o /tmp/cloudflared \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
-          /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate \
-            > /tmp/cf.log 2>&1 &
+          # setsid nohup: the tunnel must survive the step shell exiting
+          # (plain '&' dies when the step ends → 1033 for the user).
+          setsid nohup /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate \
+            > /tmp/cf.log 2>&1 < /dev/null &
           # Wait for the trycloudflare URL to appear in the log
           URL=""
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 45); do
             URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1 || true)
             [ -n "$URL" ] && break
             sleep 2
@@ -68,6 +70,17 @@ jobs:
           if [ -z "$URL" ]; then
             echo "❌ No tunnel URL — cloudflared log:"; tail -20 /tmp/cf.log; exit 1
           fi
+          # Verify the tunnel actually serves (loop until non-zero HTTP code)
+          OK=0
+          for _ in $(seq 1 15); do
+            CODE=$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' "$URL" || true)
+            if [ "$CODE" != "000" ]; then OK=1; break; fi
+            sleep 2
+          done
+          if [ "$OK" = 0 ]; then
+            echo "❌ Tunnel URL never became reachable — cloudflared log:"; tail -20 /tmp/cf.log; exit 1
+          fi
+          echo "  ✅ tunnel verified (HTTP $CODE)"
           # Mask it in ALL logs + summary — public repo.
           echo "::add-mask::$URL"
           echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"

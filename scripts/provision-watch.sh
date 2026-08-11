@@ -13,7 +13,7 @@
 # Env:   TIMEOUT_MIN (default 25)
 
 set -uo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root (this script lives in scripts/)
 # shellcheck source=config.env
 source "$SCRIPT_DIR/config.env"
 
