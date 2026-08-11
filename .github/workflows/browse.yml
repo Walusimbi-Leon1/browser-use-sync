@@ -47,6 +47,8 @@ jobs:
 
       - name: Smoke test (bookmarks, history, login, live browser)
         run: |
+          set -o pipefail
+          source config.env
           "$BROWSER_ENV/bin/browser-use" < scripts/smoke-test.py 2>&1 | tee /tmp/smoke.txt
           grep -A 30 "SMOKE:" /tmp/smoke.txt >> "$GITHUB_STEP_SUMMARY" || true
         env:
