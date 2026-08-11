@@ -85,12 +85,22 @@ jobs:
           echo "::add-mask::$URL"
           echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"
           # Deliver the URL privately: write it to the PRIVATE store repo.
+          # (Updating an existing file requires its sha — fetch it first.)
           B64=$(printf '%s' "$URL" | base64 -w0)
-          gh api -X PUT "repos/$PROFILE_REPO/contents/provision-url.txt" \
-            -f message="provision tunnel URL $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -f content="$B64" >/dev/null 2>&1 \
-            && echo "  ✅ URL written to $PROFILE_REPO (provision-url.txt)" \
-            || echo "  ⚠️  could not write provision-url.txt"
+          SHA=$(gh api "repos/$PROFILE_REPO/contents/provision-url.txt" --jq '.sha' 2>/dev/null || true)
+          if [ -n "$SHA" ]; then
+            gh api -X PUT "repos/$PROFILE_REPO/contents/provision-url.txt" \
+              -f message="provision tunnel URL $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -f content="$B64" -f sha="$SHA" >/dev/null 2>&1 \
+              && echo "  ✅ URL updated in $PROFILE_REPO (provision-url.txt)" \
+              || echo "  ⚠️  could not update provision-url.txt"
+          else
+            gh api -X PUT "repos/$PROFILE_REPO/contents/provision-url.txt" \
+              -f message="provision tunnel URL $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -f content="$B64" >/dev/null 2>&1 \
+              && echo "  ✅ URL written to $PROFILE_REPO (provision-url.txt)" \
+              || echo "  ⚠️  could not write provision-url.txt"
+          fi
           echo "### 🔑 Browser is live — log in:" >> "$GITHUB_STEP_SUMMARY"
           echo "1. The tunnel URL was written to the **private** repo \`$PROFILE_REPO\` (file \`provision-url.txt\`) — open it." >> "$GITHUB_STEP_SUMMARY"
           echo "2. In the desktop: go to accounts.google.com → sign in as **walusimbileon2@gmail.com**." >> "$GITHUB_STEP_SUMMARY"
