@@ -61,18 +61,40 @@ jobs:
         run: |
           set -euo pipefail
           source config.env
-          sudo apt-get install -y -qq x11vnc novnc websockify >/dev/null 2>&1
+          # Loud installs: through the exit node apt can be slow/fail —
+          # never hide this output or we get a broken origin behind the tunnel.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq x11vnc novnc websockify
+          command -v x11vnc >/dev/null || { echo "❌ x11vnc missing"; exit 1; }
+          command -v websockify >/dev/null || { echo "❌ websockify missing"; exit 1; }
           sudo x11vnc -display :99 -nopw -forever -shared -rfbport 5900 \
             > /tmp/x11vnc.log 2>&1 &
           websockify --web=/usr/share/novnc/ 6080 localhost:5900 \
             > /tmp/websockify.log 2>&1 &
           sleep 2
+          # Prove the LOCAL origin serves before exposing any tunnel URL.
+          LOCAL_OK=0
+          for _ in $(seq 1 15); do
+            if curl -s -o /dev/null --max-time 3 http://localhost:6080/; then
+              LOCAL_OK=1; break
+            fi
+            sleep 2
+          done
+          if [ "$LOCAL_OK" = 0 ]; then
+            echo "❌ noVNC not serving locally — x11vnc log:"; tail -15 /tmp/x11vnc.log
+            echo "websockify log:"; tail -15 /tmp/websockify.log
+            exit 1
+          fi
+          echo "  ✅ noVNC serving locally (6080)"
           curl -sL -o /tmp/cloudflared \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
+          # http2 (not QUIC): QUIC through the Tailscale exit node is a
+          # known MTU failure point → tunnel registers but 530/1033.
           # setsid nohup: the tunnel must survive the step shell exiting
           # (plain '&' dies when the step ends → 1033 for the user).
-          setsid nohup /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate \
+          setsid nohup /tmp/cloudflared tunnel --url http://localhost:6080 \
+            --protocol http2 --no-autoupdate \
             > /tmp/cf.log 2>&1 < /dev/null &
           # Wait for the trycloudflare URL to appear in the log
           URL=""
@@ -84,17 +106,17 @@ jobs:
           if [ -z "$URL" ]; then
             echo "❌ No tunnel URL — cloudflared log:"; tail -20 /tmp/cf.log; exit 1
           fi
-          # Verify the tunnel actually serves (loop until non-zero HTTP code)
+          # Verify the tunnel serves HTTP 200 END-TO-END before writing it.
           OK=0
-          for _ in $(seq 1 15); do
+          for _ in $(seq 1 20); do
             CODE=$(curl -s -o /dev/null --max-time 5 -w '%{http_code}' "$URL" || true)
-            if [ "$CODE" != "000" ]; then OK=1; break; fi
-            sleep 2
+            if [ "$CODE" = "200" ]; then OK=1; break; fi
+            sleep 3
           done
           if [ "$OK" = 0 ]; then
-            echo "❌ Tunnel URL never became reachable — cloudflared log:"; tail -20 /tmp/cf.log; exit 1
+            echo "❌ Tunnel URL never served HTTP 200 (last: $CODE) — cloudflared log:"; tail -20 /tmp/cf.log; exit 1
           fi
-          echo "  ✅ tunnel verified (HTTP $CODE)"
+          echo "  ✅ tunnel verified (HTTP 200)"
           # Mask it in ALL logs + summary — public repo.
           echo "::add-mask::$URL"
           echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"
