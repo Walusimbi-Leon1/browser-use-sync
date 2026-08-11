@@ -134,6 +134,22 @@ provision workflow to log in again — the profile then refreshes.
   fine-grained token scoped to *only* `browser-profile-store` (Contents +
   Releases read/write). Ask LA5 and he'll wire it.
 
+## Networking — stable IP via Tailscale exit node
+
+GitHub runners get a fresh datacenter IP every run — sites (including Google)
+can flag that. Both workflows now install Tailscale and route **all** traffic
+through the EC2 node `100.114.90.6` (the la5-ec2 AWS instance, an exit node
+on Leon's tailnet) via `tailscale/github-action@v4` with
+`args: --exit-node=100.114.90.6 --exit-node-allow-routing`.
+
+This means browser-use sessions, the Google login, and profile sync all look
+like they come from the EC2's stable IP. The action pings `100.114.90.6` to
+verify the tailnet link before proceeding, and a step prints the resulting
+public IP for confirmation.
+
+> Requires: the EC2 node must run `tailscale up --advertise-exit-node` (or
+> `tailscale set --advertise-exit-node`) so it can serve as an exit node.
+
 ## Notes
 
 - Runner IPs are datacenter IPs — some sites (banks, etc.) may flag the

@@ -37,6 +37,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Tailscale (route via EC2 exit node)
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          hostname: browser-use-ci
+          # Consistent egress IP for the Google login session too.
+          args: --exit-node=100.114.90.6 --exit-node-allow-routing
+          ping: 100.114.90.6
+
+      - name: Verify egress IP (should be EC2's)
+        run: |
+          echo "Public IP: $(curl -s --max-time 10 https://api.ipify.org)"
+          tailscale status | head -8
+
       - name: Setup browser-use + Chrome
         run: bash setup.sh
 
