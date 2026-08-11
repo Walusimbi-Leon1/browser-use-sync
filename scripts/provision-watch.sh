@@ -5,9 +5,11 @@
 # Signals that "we're done":
 #   1. A bookmark titled SYNC-DONE exists (Leon creates it via
 #      Ctrl+D in the browser — unambiguous human signal), OR
-#   2. Chrome Preferences show account_info AND a Sync Data dir
-#      exists (logged in + sync engine initialized), OR
-#   3. Hard timeout (TIMEOUT_MIN) → pack whatever exists anyway.
+#   2. Hard timeout (TIMEOUT_MIN) → pack whatever exists anyway.
+#
+# NOTE: "logged in" alone is NOT a completion signal — the Sync Data
+# dir appears the moment you sign in, so it used to kill the run right
+# after login, before sync/bookmark steps. Login is logged info only.
 #
 # Usage: bash scripts/provision-watch.sh
 # Env:   TIMEOUT_MIN (default 25)
@@ -22,7 +24,7 @@ DEFAULT_DIR="$CHROME_PROFILE/Default"
 DEADLINE=$(( $(date +%s) + TIMEOUT_MIN * 60 ))
 
 echo "👀 Watching for login completion (up to ${TIMEOUT_MIN} min)…"
-echo "   Signal: bookmark titled SYNC-DONE, or logged-in + sync data."
+echo "   Signal: SYNC-DONE bookmark (or timeout). Login alone won't stop the run."
 
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   DONE=0
@@ -35,11 +37,11 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
     fi
   fi
 
-  # Signal 2: logged in + sync engine initialized
-  if [ "$DONE" = 0 ] && [ -f "$DEFAULT_DIR/Preferences" ]; then
+  # Informational only: login detected → tell the user to keep going.
+  if [ -f "$DEFAULT_DIR/Preferences" ]; then
     if grep -q '"account_info"' "$DEFAULT_DIR/Preferences" 2>/dev/null \
        && [ -d "$DEFAULT_DIR/Sync Data" ]; then
-      DONE=1; REASON="logged in + Sync Data present"
+      echo "ℹ️  Login detected — keep going: turn on sync and create the SYNC-DONE bookmark (Ctrl+D → rename)."
     fi
   fi
 

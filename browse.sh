@@ -102,21 +102,7 @@ PY
       exit 1
     fi
     export BU_TASK="$TASK"
-    export OPENCODE_BASE_URL OPENCODE_MODEL OPENCODE_API_KEY
-    bu <<'PY'
-import os
-from browser_use.agent import Agent
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(
-    base_url=os.environ["OPENCODE_BASE_URL"],
-    api_key=os.environ["OPENCODE_API_KEY"],
-    model=os.environ["OPENCODE_MODEL"],
-)
-agent = Agent(task=os.environ["BU_TASK"], llm=llm)
-result = agent.run()
-print("RESULT:", result)
-PY
+    exec "$BROWSER_ENV/bin/python" "$SCRIPT_DIR/scripts/ai-task.py"
     ;;
   *)
     echo "usage: ./browse.sh {tabs|open <url>|info|switch <url-part>|close [url-part]|shot [name]|ai \"<task>\"}"
