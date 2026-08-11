@@ -77,6 +77,16 @@ else
   echo "  ✅ browser-use installed"
 fi
 
+# Playwright Chromium as the harness's own fallback browser (only used
+# if no CDP Chrome is reachable). ~120 MB, one-time per runner.
+if [ -d "$HOME/.cache/ms-playwright" ]; then
+  echo "  ✅ Playwright Chromium already downloaded"
+else
+  echo "  ⬇️  Downloading Playwright Chromium fallback (~120 MB)..."
+  "$BROWSER_ENV/bin/playwright" install --with-deps chromium >/dev/null 2>&1 || true
+  echo "  ✅ Playwright Chromium ready"
+fi
+
 # ── 4. Verify ───────────────────────────────────────────
 echo ""
 echo "[4/4] Verification..."
