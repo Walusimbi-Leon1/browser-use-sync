@@ -70,6 +70,37 @@ jobs:
         run: |
           bash profile.sh download || echo "No stored profile yet — continuing fresh."
 
+      - name: Audit restored profile (cookies BEFORE Chrome starts)
+        if: ${{ inputs.use_profile }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sqlite3
+          p = '/tmp/bu-profile'
+          lsf = os.path.join(p, 'Local State')
+          print('Local State exists:', os.path.exists(lsf))
+          if os.path.exists(lsf):
+              try:
+                  d = json.load(open(lsf))
+                  key = (d.get('os_crypt') or {}).get('encrypted_key', '')
+                  print('os_crypt encrypted_key present:', bool(key), 'len', len(key))
+              except Exception as e:
+                  print('Local State parse err:', e)
+          db = os.path.join(p, 'Default', 'Network', 'Cookies')
+          print('Cookies DB exists:', os.path.exists(db),
+                'size', os.path.getsize(db) if os.path.exists(db) else 0)
+          if os.path.exists(db):
+              try:
+                  con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+                  n = con.execute("select count(*) from cookies where host_key like '%google%'").fetchone()[0]
+                  print('google cookie rows:', n)
+                  for r in con.execute("select host_key, name from cookies where host_key like '%google%' limit 8"):
+                      print('   ', r[0], r[1])
+              except Exception as e:
+                  print('cookies read err:', e)
+          ver = os.popen('google-chrome --version 2>/dev/null || true').read().strip()
+          print('chrome:', ver)
+          PY
+
       - name: Start Chrome
         run: bash start.sh
 
