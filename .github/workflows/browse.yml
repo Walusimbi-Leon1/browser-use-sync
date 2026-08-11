@@ -1,0 +1,66 @@
+name: Browse — synced profile session
+
+# Downloads the stored synced profile (the one provisioned with
+# Leon's Google login), starts Chrome with it, runs browser-use,
+# then saves the profile back — so sessions and cookies persist
+# between runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      use_profile:
+        description: "Use the stored synced profile (false = fresh profile test)"
+        required: false
+        type: boolean
+        default: true
+      save_profile:
+        description: "Pack + upload the profile back after the run"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: browse
+  cancel-in-progress: false
+
+jobs:
+  browse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup browser-use + Chrome
+        run: bash setup.sh
+
+      - name: Restore synced profile
+        if: ${{ inputs.use_profile }}
+        run: |
+          bash profile.sh download || echo "No stored profile yet — continuing fresh."
+
+      - name: Start Chrome
+        run: bash start.sh
+
+      - name: Smoke test (bookmarks, history, login, live browser)
+        run: |
+          "$BROWSER_ENV/bin/browser-use" < scripts/smoke-test.py 2>&1 | tee /tmp/smoke.txt
+          grep -A 30 "SMOKE:" /tmp/smoke.txt >> "$GITHUB_STEP_SUMMARY" || true
+        env:
+          CHROME_PROFILE: /tmp/bu-profile
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-screenshots
+          path: /tmp/bu-shots/
+          if-no-files-found: ignore
+
+      - name: Save profile back
+        if: ${{ inputs.save_profile && always() }}
+        run: |
+          bash profile.sh pack
+          bash profile.sh upload

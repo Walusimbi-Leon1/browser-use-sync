@@ -1,0 +1,85 @@
+name: Provision — Google login + sync (one-time)
+
+# Runs a real, visible Chrome on a runner with noVNC + a Cloudflare
+# quick tunnel. You open the tunnel URL in YOUR browser, log into
+# Google (walusimbileon2@gmail.com), enable Sync (bookmarks,
+# history, open tabs, everything), then create a bookmark named
+# SYNC-DONE. The job packs the profile and stores it in the
+# browser-profile release — every later run starts from it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeout_min:
+        description: "Minutes to wait for your login (default 25)"
+        required: false
+        default: "25"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: provision
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup browser-use + Chrome
+        run: bash setup.sh
+
+      - name: Start Chrome (fresh profile)
+        run: bash start.sh
+
+      - name: Start noVNC + tunnel
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq x11vnc novnc websockify >/dev/null 2>&1
+          sudo x11vnc -display :99 -nopw -forever -shared -rfbport 5900 \
+            > /tmp/x11vnc.log 2>&1 &
+          websockify --web=/usr/share/novnc/ 6080 localhost:5900 \
+            > /tmp/websockify.log 2>&1 &
+          sleep 2
+          curl -sL -o /tmp/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate \
+            > /tmp/cf.log 2>&1 &
+          # Wait for the trycloudflare URL to appear in the log
+          URL=""
+          for _ in $(seq 1 30); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          if [ -z "$URL" ]; then
+            echo "❌ No tunnel URL — cloudflared log:"; tail -20 /tmp/cf.log; exit 1
+          fi
+          echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"
+          echo "### 🔑 Your browser is live — log in here:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**$URL**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. Open the URL, click inside the desktop." >> "$GITHUB_STEP_SUMMARY"
+          echo "2. Go to accounts.google.com → sign in as **walusimbileon2@gmail.com** (solve any captcha/2FA here — this is the one-time gate)." >> "$GITHUB_STEP_SUMMARY"
+          echo "3. chrome://settings/syncSetup → **Turn on sync** (Sync everything)." >> "$GITHUB_STEP_SUMMARY"
+          echo "4. Create a bookmark named **SYNC-DONE** (Ctrl+D, rename). The job auto-finishes when it appears." >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: $URL"
+
+      - name: Wait for login + sync, then pack profile
+        env:
+          TIMEOUT_MIN: ${{ inputs.timeout_min }}
+        run: bash scripts/provision-watch.sh
+
+      - name: Store profile in release
+        run: bash profile.sh upload
+
+      - name: Summary
+        run: |
+          du -h /tmp/profile.tar.gz | sed 's/^/Stored profile: /'
+          echo "✅ Provision complete — synced profile saved. Future runs start from it."

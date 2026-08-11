@@ -1,0 +1,9 @@
+# profile + runtime junk (never commit these)
+bu-profile/
+profile.tar.gz
+*.tar.gz
+/tmp/bu-*
+bu-shots/
+__pycache__/
+*.pyc
+.DS_Store
