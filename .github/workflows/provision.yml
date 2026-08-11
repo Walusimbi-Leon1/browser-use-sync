@@ -43,7 +43,7 @@ jobs:
           authkey: ${{ secrets.TS_AUTHKEY }}
           hostname: browser-use-ci
           # Consistent egress IP for the Google login session too.
-          args: --exit-node=100.114.90.6 --exit-node-allow-routing
+          args: --exit-node=100.114.90.6
           ping: 100.114.90.6
 
       - name: Verify egress IP (should be EC2's)
