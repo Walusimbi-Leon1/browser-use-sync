@@ -5,7 +5,12 @@ name: Provision — Google login + sync (one-time)
 # Google (walusimbileon2@gmail.com), enable Sync (bookmarks,
 # history, open tabs, everything), then create a bookmark named
 # SYNC-DONE. The job packs the profile and stores it in the
-# browser-profile release — every later run starts from it.
+# PRIVATE store repo (browser-profile-store) — every later run
+# starts from it.
+#
+# ⚠️ This repo is PUBLIC. The tunnel URL is masked in logs and
+# written to the private store repo (provision-url.txt) instead of
+# being printed, so nobody else can grab the live login session.
 
 on:
   workflow_dispatch:
@@ -26,6 +31,8 @@ jobs:
   provision:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.GH_PUSH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,6 +46,7 @@ jobs:
       - name: Start noVNC + tunnel
         run: |
           set -euo pipefail
+          source config.env
           sudo apt-get install -y -qq x11vnc novnc websockify >/dev/null 2>&1
           sudo x11vnc -display :99 -nopw -forever -shared -rfbport 5900 \
             > /tmp/x11vnc.log 2>&1 &
@@ -60,26 +68,31 @@ jobs:
           if [ -z "$URL" ]; then
             echo "❌ No tunnel URL — cloudflared log:"; tail -20 /tmp/cf.log; exit 1
           fi
+          # Mask it in ALL logs + summary — public repo.
+          echo "::add-mask::$URL"
           echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"
-          echo "### 🔑 Your browser is live — log in here:" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**$URL**" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "1. Open the URL, click inside the desktop." >> "$GITHUB_STEP_SUMMARY"
-          echo "2. Go to accounts.google.com → sign in as **walusimbileon2@gmail.com** (solve any captcha/2FA here — this is the one-time gate)." >> "$GITHUB_STEP_SUMMARY"
+          # Deliver the URL privately: write it to the PRIVATE store repo.
+          B64=$(printf '%s' "$URL" | base64 -w0)
+          gh api -X PUT "repos/$PROFILE_REPO/contents/provision-url.txt" \
+            -f message="provision tunnel URL $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -f content="$B64" >/dev/null 2>&1 \
+            && echo "  ✅ URL written to $PROFILE_REPO (provision-url.txt)" \
+            || echo "  ⚠️  could not write provision-url.txt"
+          echo "### 🔑 Browser is live — log in:" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. The tunnel URL was written to the **private** repo \`$PROFILE_REPO\` (file \`provision-url.txt\`) — open it." >> "$GITHUB_STEP_SUMMARY"
+          echo "2. In the desktop: go to accounts.google.com → sign in as **walusimbileon2@gmail.com**." >> "$GITHUB_STEP_SUMMARY"
           echo "3. chrome://settings/syncSetup → **Turn on sync** (Sync everything)." >> "$GITHUB_STEP_SUMMARY"
           echo "4. Create a bookmark named **SYNC-DONE** (Ctrl+D, rename). The job auto-finishes when it appears." >> "$GITHUB_STEP_SUMMARY"
-          echo "URL: $URL"
 
       - name: Wait for login + sync, then pack profile
         env:
           TIMEOUT_MIN: ${{ inputs.timeout_min }}
         run: bash scripts/provision-watch.sh
 
-      - name: Store profile in release
+      - name: Store profile in PRIVATE repo
         run: bash profile.sh upload
 
       - name: Summary
         run: |
           du -h /tmp/profile.tar.gz | sed 's/^/Stored profile: /'
-          echo "✅ Provision complete — synced profile saved. Future runs start from it."
+          echo "✅ Provision complete — synced profile saved to the PRIVATE store repo."

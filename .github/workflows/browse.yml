@@ -1,9 +1,9 @@
 name: Browse — synced profile session
 
-# Downloads the stored synced profile (the one provisioned with
-# Leon's Google login), starts Chrome with it, runs browser-use,
+# Downloads the stored synced profile from the PRIVATE store repo
+# (browser-profile-store), starts Chrome with it, runs browser-use,
 # then saves the profile back — so sessions and cookies persist
-# between runs.
+# between runs. Sensitive data never touches this public repo.
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ on:
         type: boolean
         default: true
       save_profile:
-        description: "Pack + upload the profile back after the run"
+        description: "Pack + upload the profile back to the PRIVATE store repo"
         required: false
         type: boolean
         default: true
@@ -30,6 +30,8 @@ jobs:
   browse:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GH_PUSH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +39,7 @@ jobs:
       - name: Setup browser-use + Chrome
         run: bash setup.sh
 
-      - name: Restore synced profile
+      - name: Restore synced profile (from PRIVATE store)
         if: ${{ inputs.use_profile }}
         run: |
           bash profile.sh download || echo "No stored profile yet — continuing fresh."
@@ -54,14 +56,7 @@ jobs:
         env:
           CHROME_PROFILE: /tmp/bu-profile
 
-      - name: Upload screenshot artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-screenshots
-          path: /tmp/bu-shots/
-          if-no-files-found: ignore
-
-      - name: Save profile back
+      - name: Save profile back (to PRIVATE store)
         if: ${{ inputs.save_profile && always() }}
         run: |
           bash profile.sh pack

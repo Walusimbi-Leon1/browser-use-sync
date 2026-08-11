@@ -4,24 +4,28 @@ set -euo pipefail
 # ============================================================
 # profile.sh — the profile sync engine
 #
-# Stores the Chrome profile ($CHROME_PROFILE) as a tarball in
-# a GitHub Release (PROFILE_RELEASE) so it survives between
-# runs — every GitHub Actions runner is ephemeral, so this
-# release IS the persistent home of the synced profile.
+# Stores the Chrome profile ($CHROME_PROFILE) as a tarball in a
+# GitHub Release of the PRIVATE store repo ($PROFILE_REPO) so it
+# survives between runs — every GitHub Actions runner is
+# ephemeral, so that release IS the persistent home of the
+# synced profile. This public repo never holds the profile.
+#
+# Auth: requires GH_TOKEN (set from the GH_PUSH_TOKEN repo
+# secret in workflows). Never commit the token.
 #
 # Usage:
-#   bash profile.sh download   # fetch profile.tar.gz → /tmp, unpack
-#   bash profile.sh upload     # pack $CHROME_PROFILE → release (clobber)
+#   bash profile.sh download   # fetch profile.tar.gz from PRIVATE repo
+#   bash profile.sh upload     # pack $CHROME_PROFILE → PRIVATE repo (clobber)
 #   bash profile.sh pack       # just create /tmp/profile.tar.gz
 #   bash profile.sh unpack     # just unpack /tmp/profile.tar.gz
-#   bash profile.sh info       # show stored size/date
+#   bash profile.sh info       # show stored size/date (private repo)
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=config.env
 source "$SCRIPT_DIR/config.env"
 
-GH="gh"
+: "${GH_TOKEN:?GH_TOKEN is required — set the GH_PUSH_TOKEN secret on the repo}"
 TARBALL="/tmp/$PROFILE_ASSET"
 
 cmd="${1:-}"
@@ -44,8 +48,9 @@ case "$cmd" in
     ;;
 
   download)
-    echo "⬇️  Downloading $PROFILE_ASSET from release '$PROFILE_RELEASE' ..."
-    if ! gh release download "$PROFILE_RELEASE" -p "$PROFILE_ASSET" --clobber -D /tmp 2>/dev/null; then
+    echo "⬇️  Downloading $PROFILE_ASSET from $PROFILE_REPO release '$PROFILE_RELEASE' ..."
+    if ! gh release download "$PROFILE_RELEASE" --repo "$PROFILE_REPO" \
+        -p "$PROFILE_ASSET" --clobber -D /tmp 2>/dev/null; then
       echo "  ⚠️  No stored profile yet (release missing) — will use a fresh profile."
       exit 2
     fi
@@ -54,16 +59,18 @@ case "$cmd" in
     ;;
 
   upload)
-    echo "⬆️  Uploading $TARBALL to release '$PROFILE_RELEASE' ..."
-    gh release create "$PROFILE_RELEASE" --title "Synced browser profile" \
-      --notes "Packed Chrome profile for browser-use. Auto-updated by workflows." \
-      2>/dev/null || true
-    gh release upload "$PROFILE_RELEASE" "$TARBALL" --clobber
-    echo "  ✅ profile stored (survives until the next run)"
+    echo "⬆️  Uploading $TARBALL to $PROFILE_REPO release '$PROFILE_RELEASE' ..."
+    gh release create "$PROFILE_RELEASE" --repo "$PROFILE_REPO" \
+      --title "Synced browser profile" \
+      --notes "Packed Chrome profile for browser-use-sync. PRIVATE — auto-updated by workflows." \
+      >/dev/null 2>&1 || true
+    gh release upload "$PROFILE_RELEASE" "$TARBALL" --repo "$PROFILE_REPO" --clobber
+    echo "  ✅ profile stored in the PRIVATE repo (survives until the next run)"
     ;;
 
   info)
-    gh release view "$PROFILE_RELEASE" 2>/dev/null | head -12 || echo "no release yet"
+    gh release view "$PROFILE_RELEASE" --repo "$PROFILE_REPO" 2>/dev/null | head -12 \
+      || echo "no release in $PROFILE_REPO yet"
     ;;
 
   *)

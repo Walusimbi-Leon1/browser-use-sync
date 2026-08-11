@@ -5,26 +5,37 @@ by [browser-use](https://github.com/browser-use/browser-use). It carries
 **your real Google profile** — signed in as `walusimbileon2@gmail.com` — with
 your bookmarks, history, and sync data, and it survives between runs.
 
-This is the base for what comes next (e.g. posting Instagram reels with your
-accounts).
+> ⚠️ **This repo is PUBLIC** (public repos get unlimited Actions minutes).
+> All sensitive data — the Chrome profile, cookies, sessions — lives in a
+> **private** repo instead: **`Walusimbi-Leon1/browser-profile-store`**.
+> This repo only contains code; the workflows fetch the profile from the
+> private store using a GitHub token stored in repo secrets.
 
 ---
 
-## How it works
+## Architecture
+
+```
+┌─────────────────────────────┐        GH_PUSH_TOKEN (secret)        ┌──────────────────────────────┐
+│  browser-use-sync  (PUBLIC) │ ───────────────────────────────────▶ │  browser-profile-store (PRIV)│
+│  • all workflows + scripts  │   gh CLI (authenticated, masked)     │  • profile.tar.gz (release)  │
+│  • NO sensitive data        │ ◀─────────────────────────────────── │  • provision-url.txt         │
+└─────────────────────────────┘   download at start / upload at end   └──────────────────────────────┘
+```
+
+GitHub Actions runners are **ephemeral** — a fresh machine every run. The
+private repo's Release is the persistent home of your profile:
+`browse.yml` downloads it at the start, and re-uploads it at the end, so
+logins, cookies, and sync state carry across runs.
 
 | Piece | What it does |
 |---|---|
 | `setup.sh` | Installs browser-use + **Google Chrome stable** + Xvfb (idempotent) |
 | `start.sh` | Starts Xvfb + Chrome with `$CHROME_PROFILE` on CDP :9222 |
 | `browse.sh` | Tab control wrapper: `tabs / open / info / switch / close / shot / ai` |
-| `profile.sh` | The **sync engine** — packs/unpacks the profile to/from a GitHub Release (`browser-profile`) |
-| `.github/workflows/provision.yml` | **One-time:** live noVNC session → you log into Google + enable sync → profile is stored |
+| `profile.sh` | The **sync engine** — packs/unpacks the profile to/from the PRIVATE repo's Release |
+| `.github/workflows/provision.yml` | **One-time:** live noVNC session → you log into Google + enable sync → profile stored privately |
 | `.github/workflows/browse.yml` | **Every run:** downloads stored profile → Chrome with it → browser-use → saves profile back |
-
-GitHub Actions runners are **ephemeral** — a fresh machine every run. The
-GitHub Release is the persistent home of your profile. `browse.yml` downloads
-it at the start and re-uploads it at the end, so logins, cookies, and sync
-state carry across runs.
 
 ---
 
@@ -32,8 +43,11 @@ state carry across runs.
 
 Run **Provision — Google login + sync** (Actions → Run workflow).
 
-You get a **tunnel URL** in the job logs + summary. Open it in your browser —
-you'll see the runner's live desktop. Then:
+The job starts a live desktop on the runner, then writes the **tunnel URL to
+the private store repo** (file `provision-url.txt`) — it is *not* printed
+here, because this repo is public. You can also ask LA5 to read it for you.
+
+Then, in the tunnel URL's desktop:
 
 1. Go to `accounts.google.com` → sign in as **walusimbileon2@gmail.com**.
    (Solve any captcha / 2FA here — this is the one-time gate. Google
@@ -41,7 +55,7 @@ you'll see the runner's live desktop. Then:
 2. `chrome://settings/syncSetup` → **Turn on sync** → **Sync everything**
    (bookmarks, history, open tabs, passwords, settings).
 3. Create a bookmark named **`SYNC-DONE`** (Ctrl+D → rename).
-   The job detects it, packs the profile, and stores it in the release.
+   The job detects it, packs the profile, and stores it in the private repo.
 
 Done. Every future run starts from that profile.
 
@@ -49,9 +63,9 @@ Done. Every future run starts from that profile.
 
 Run **Browse — synced profile session** (manual, or add a cron later).
 It restores your profile, opens Chrome, runs the smoke test
-(bookmarks count, recent history, login cookies, live account page +
-screenshot), and saves the profile back. Add real tasks after the smoke
-step — e.g. an Instagram reel poster (coming next).
+(bookmarks count, recent history, login cookies, live account page), and
+saves the profile back. Add real tasks after the smoke step — e.g. an
+Instagram reel poster (coming next).
 
 ### Local tab control (same as neko-colab)
 
@@ -100,15 +114,25 @@ provision workflow to log in again — the profile then refreshes.
 
 ---
 
-## Security
+## Security — how sensitive data stays private
 
-- **This repo is PRIVATE** — it stores your Google session. Never make it
-  public.
-- The profile release (`browser-profile`) contains your cookies — it lives
-  only in this private repo.
-- The CDP port binds to localhost on the runner (never exposed; the noVNC
-  tunnel is created only during provision and only for you).
-- No credentials in the repo — you sign in visually during provision.
+- **The profile never touches this public repo.** It is packed and stored
+  only in `Walusimbi-Leon1/browser-profile-store` (private, Release
+  `browser-profile`). No profile files are committed here, and nothing is
+  uploaded as a public artifact.
+- **Auth via a secret:** workflows use the `GH_PUSH_TOKEN` repo secret (a
+  GitHub personal access token) with `gh`. Tokens are never logged —
+  GitHub masks secret values everywhere.
+- **The provision tunnel URL is masked** (`::add-mask::`) and delivered via
+  the private repo instead of the public logs, so nobody can grab the live
+  login session mid-provision.
+- **No fork-PR risk:** all workflows are `workflow_dispatch`-only (manual),
+  never triggered by pushes/PRs — a malicious fork PR cannot run them.
+- Screenshots taken during runs stay on the ephemeral runner (no artifact
+  upload) to avoid leaking anything via public run artifacts.
+- **Recommended hardening:** replace the classic PAT with a
+  fine-grained token scoped to *only* `browser-profile-store` (Contents +
+  Releases read/write). Ask LA5 and he'll wire it.
 
 ## Notes
 
